@@ -130,7 +130,7 @@ The table below summarizes the reported results on ShortVid-Bench, Video-MME, an
 
 ## Acknowledgments
 
-This project builds on [OmniZip](https://github.com/KD-TAO/OmniZip), [Qwen2.5-Omni](https://github.com/QwenLM/Qwen2.5-Omni), [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval), and [FlashAttention](https://github.com/Dao-AILab/flash-attention). We thank their authors and contributors for making their work available.
+This project builds on [Qwen2.5-Omni](https://github.com/QwenLM/Qwen2.5-Omni). We thank the Qwen team for making their work available.
 
 ## License
 
