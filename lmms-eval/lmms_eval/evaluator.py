@@ -315,6 +315,12 @@ def simple_evaluate(
                 "fewshot_seed": fewshot_random_seed,
             }
         )
+        optional_runtime_params = {}
+        for param_name in ("remain_audio_ratio", "remain_video_ratio", "video_chunk_frames", "alpha"):
+            if hasattr(lm, param_name):
+                optional_runtime_params[param_name] = getattr(lm, param_name)
+        if optional_runtime_params:
+            results["config"].update(optional_runtime_params)
         results["git_hash"] = get_git_commit_hash()
         results["date"] = datetime_str
         # add_env_info(results)  # additional environment info to results

@@ -1,114 +1,137 @@
+# OmniDTBC
 
-# OmniZip: Audio-Guided Dynamic Token Compression for Fast Omnimodal Large Language Models
+**Dynamic Token Budget Compression for Video-Audio Large Language Models**
 
-[Keda Tao](https://kd-tao.github.io/), [Kele Shao](https://cokeshao.github.io/), [Bohan Yu](), [Weiqiang Wang](), [Jian liu](), [Huan Wang](https://huanwang.tech/), "OmniZip: Audio-Guided Dynamic Token Compression for Fast Omnimodal Large Language Models"
+OmniDTBC is a training-free framework for compressing audio and visual tokens in omni-modal large language models. Built on Qwen2.5-Omni, it combines token importance scoring, diversity-aware selection with determinantal point processes (DPPs), and dynamic token budget allocation across temporal windows.
 
-[[Paper](https://arxiv.org/abs/2511.14582)]
+![Overview of the OmniDTBC framework](figures/pipline.png)
 
-#### 🔥🔥🔥 News
+## Repository Structure
 
-- **2025-11-19**: The paper is released.
-- **2025-11-18:** This repo is released.
-
-
-![overview](figures/method.png)
-
-
-> **Abstract:** Omnimodal large language models (OmniLLMs) have attracted increasing research attention of late towards unified audio-video understanding, wherein processing audio-video token sequences creates a significant computational bottleneck, however. Existing token compression methods have yet to accommodate this emerging need of jointly compressing multimodal tokens. To bridge this gap, we present OmniZip, a training-free, audio-guided audio-visual token-compression framework that optimizes multimodal token representation and accelerates inference. Specifically, OmniZip first identifies salient audio tokens, then computes an audio retention score for each time group to capture information density, thereby dynamically guiding video token pruning and preserving cues from audio anchors enhanced by cross-modal similarity. For each time window, OmniZip compresses the video tokens using an interleaved spatio-temporal scheme. Extensive empirical results demonstrate the merits of OmniZip - it achieves 3.42 $\times$ inference speedup and 1.4 $\times$ memory reduction over other top-performing counterparts, while maintaining performance with no training.
-
-## ⚒️ TODO
-
-* [x] Release code 
-* [x] Release paper 
-* [ ] Release evaluation script for all benchmarks
-* [ ] Support more models
-
-## Install
-##### 1. **Clone this repository and navigate to the LLaVA folder:**
-```bash
-git clone https://github.com/KD-TAO/OmniZip.git
-cd OmniZip
+```text
+.
+├── demo.py                         # Video-audio inference demo
+├── setup.sh                        # Core Python dependency installation
+├── utils/
+│   ├── omnidtbc.py                  # Token compression implementation
+│   └── modeling_qwen2_5_omni.py     # Qwen2.5-Omni integration
+├── qwen-omni-utils/                # Bundled multimodal preprocessing utilities
+├── lmms-eval/                      # Evaluation framework and model adapter
+├── figures/                        # Method overview and benchmark results
+└── LICENSE
 ```
 
-##### 2. **Install the inference package:**
+## Installation
+
+Run the commands below from the repository root. The demo uses an NVIDIA GPU on `cuda:0` with FlashAttention-2. Use a Linux environment with a compatible CUDA toolkit and GPU; see the [FlashAttention installation requirements](https://github.com/Dao-AILab/flash-attention#installation-and-features).
+
+### 1. Create an environment
+
 ```bash
-conda create -n omnizip python=3.10 -y
-conda activate omnizip
-pip install --upgrade pip
+conda create -n omnidtbc python=3.10 -y
+conda activate omnidtbc
+python -m pip install --upgrade pip
+conda install -c conda-forge ffmpeg -y
+```
+
+### 2. Install PyTorch
+
+Install CUDA-enabled builds of `torch`, `torchvision`, and `torchaudio` that match your Python and CUDA versions. Follow the [PyTorch installation guide](https://pytorch.org/get-started/locally/) or select a compatible release from [previous versions](https://pytorch.org/get-started/previous-versions/).
+
+### 3. Install project dependencies
+
+```bash
 bash setup.sh
+python -m pip install packaging psutil ninja
+python -m pip install flash-attn --no-build-isolation
+```
 
-cd lmms-eval
-pip install -e .
-
-# Recommend
-# pip install torch==2.6.0 torchvision==0.21.0
-pip install flash-attn --no-build-isolation
-```
-#### Input Video Setting
-You can adjust the number of input frames and the maximum pixel size according to your own computing resources.
-```
-VIDEO_MIN_PIXELS = 128 * 28 * 28
-VIDEO_MAX_PIXELS = 768 * 28 * 28 # <- 1 (We use 128*28*28 in the paper.)
-FRAME_FACTOR = 2
-FPS = 2.0
-FPS_MIN_FRAMES = 4
-FPS_MAX_FRAMES = 768 # <- 2
-```
+The setup script installs `transformers==4.52.3`, `accelerate`, `moviepy`, and the bundled `qwen-omni-utils` package. Keep the Transformers version aligned with the custom model implementation.
 
 ## Quick Start
-To have a quick demo of OmniZip with Qwen2.5-Omni, please run
+
+Provide a Qwen2.5-Omni model directory or Hugging Face model ID and a local video file. The demo reads both the video frames and its audio track, then streams a text response to the terminal. **The input video must contain an audio track.**
+
+The examples use `Qwen/Qwen2.5-Omni-7B`. Replace `/path/to/video.mp4` with your own video path. To load downloaded weights, replace the model ID with your local model directory.
+
+### Standard inference
+
+```bash
+python demo.py \
+  --model_path Qwen/Qwen2.5-Omni-7B \
+  --video /path/to/video.mp4 \
+  --describe "Describe this video."
 ```
-python demo.py --omnizip
+
+### Inference with OmniDTBC
+
+```bash
+python demo.py \
+  --model_path Qwen/Qwen2.5-Omni-7B \
+  --video /path/to/video.mp4 \
+  --describe "Describe what happens in the video and what can be heard." \
+  --omnidtbc \
+  --remaining_audio 0.6 \
+  --remaining_video 0.3 \
+  --video_chunk_frames 8 \
+  --alpha 0.02
 ```
-You can set the relevant parameters by
-```
-python demo.py --omnizip --rho_audio 0.4 --rho_video 0.7
-```
+
+### Command-line arguments
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--model_path` | Required | Local model directory or Hugging Face model ID. |
+| `--video` | Required | Path to a video file with an audio track. |
+| `--describe` | `Describe this video.` | Instruction or question for the model. |
+| `--omnidtbc` | Disabled | Enable OmniDTBC token compression. |
+| `--remaining_audio` | `0.6` | Target fraction of audio tokens to retain. |
+| `--remaining_video` | `0.3` | Target fraction of visual tokens to retain. |
+| `--video_chunk_frames` | `8` | Number of frames in each local visual DPP window. |
+| `--alpha` | `0.02` | Weight of cross-modal similarity in token importance scores. |
+
+Compression arguments apply when `--omnidtbc` is enabled. Use retention ratios in `(0, 1]` and a positive integer for `--video_chunk_frames`. Actual retained counts depend on rounding and budget constraints within each window.
+
+The demo currently sets `HF_ENDPOINT` to `https://hf-mirror.com`. Update that setting in [demo.py](demo.py) if you use a different Hugging Face endpoint.
+
 ## Evaluation
-#### For VideoMME (Benchmarks in lmms-eval)
-- We use the [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval) toolkit to evaluate our models. It's worth noting that you can specify OmniZip Settings via parameters in **eval.sh**, such as:
+
+The bundled [lmms-eval](lmms-eval/) framework includes a modified `qwen2_5_omni` adapter and task configurations for Video-MME and WorldSense.
+
+Install the evaluation dependencies in the same environment:
+
 ```bash
-export WRAPPER=OmniZip
-OMNIZIP_RHO_AUDIO=0.3
-OMNIZIP_RHO_VIDEO=0.6
-OMNIZIP_G=3
-OMNIZIP_CONTEXTUAL_RATIO=0.05
-...
+python -m pip install -e "./lmms-eval[audio]"
+python -m pip install "transformers==4.52.3"
 ```
-- Then you can run for evaluation
+
+Prepare the benchmark videos and configure their cache locations before evaluation. See the [Video-MME task files](lmms-eval/lmms_eval/tasks/videomme/) and [WorldSense task files](lmms-eval/lmms_eval/tasks/worldsense/) for dataset settings and expected video paths. Both tasks resolve video locations relative to `HF_HOME`.
+
+Run the following example from the repository root:
+
 ```bash
-bash eval.sh
+WRAPPER=OmniDTBC python -m lmms_eval \
+  --model qwen2_5_omni \
+  --model_args "pretrained=Qwen/Qwen2.5-Omni-7B,attn_implementation=flash_attention_2,remain_audio_ratio=0.6,remain_video_ratio=0.3,video_chunk_frames=8,alpha=0.02" \
+  --tasks videomme \
+  --batch_size 1 \
+  --output_path ./outputs/videomme
 ```
-#### For Other Benchmark ([AVUT](https://huggingface.co/datasets/tsinghua-ee/AVUTBenchmark), [ShorVid-Bench](https://huggingface.co/datasets/TencentARC/ShortVid-Bench)), and [WorldSense](https://jaaackhongggg.github.io/WorldSense/)
 
-- We prefer use this evaluation method:
-```
-python eval/eval.py --WAPPER-METHOD omnizip
-```
+Set `--tasks worldsense` to evaluate WorldSense. For standard model inference, omit `WRAPPER=OmniDTBC`.
 
+The evaluation adapter uses `remain_audio_ratio` and `remain_video_ratio` in `--model_args`; the demo uses `--remaining_audio` and `--remaining_video`.
 
-## 👀 Results on Audio-Video Understanding Task
+## Benchmark Results
 
-![overview](figures/table.png)
+The table below summarizes the reported results on ShortVid-Bench, Video-MME, and WorldSense for Qwen2.5-Omni-7B and Qwen2.5-Omni-3B at different token retention ratios.
 
-![overview](figures/teaser.png)
-## Acknowledgement
+![Benchmark results for Qwen2.5-Omni-7B and Qwen2.5-Omni-3B](figures/results.png)
 
-This project is based on [Qwen2.5-Omni](https://github.com/QwenLM/Qwen2.5-Omni). Thanks for their awesome work.
+## Acknowledgments
 
-## Contact
+This project builds on [OmniZip](https://github.com/KD-TAO/OmniZip), [Qwen2.5-Omni](https://github.com/QwenLM/Qwen2.5-Omni), [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval), and [FlashAttention](https://github.com/Dao-AILab/flash-attention). We thank their authors and contributors for making their work available.
 
-If you have any questions, please feel free to contact me at KD.TAO@outlook.com
+## License
 
-## Citation
-
-If you find this work useful for your research, please consider citing our paper:
-
-```bibtex
-@article{omnizip,
-  title={OmniZip: Audio-Guided Dynamic Token Compression for Fast Omnimodal Large Language Models}, 
-  author={Keda Tao and Kele Shao and Bohan Yu and Weiqiang Wang and Jian liu and Huan Wang},
-  journal={arXiv preprint arXiv:2511.14582},
-  year={2025}
-}
-```
+This project is distributed under the [Apache License 2.0](LICENSE). Bundled third-party components retain their respective licenses.

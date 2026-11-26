@@ -1,7 +1,8 @@
 import base64
 from io import BytesIO
 from typing import List, Optional, Tuple, Union
-
+import os
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 import audioread
 import av
 import decord
@@ -18,11 +19,11 @@ from transformers import Qwen2_5OmniProcessor
 
 import os
 method_wrapper = os.environ.get("WRAPPER")
-if method_wrapper == "OmniZip":
+if method_wrapper == "OmniDTBC":
     print("#" * 50)
-    print("Use OmniZip for Inference")
+    print("Use OmniDTBC for Inference")
     print("#" * 50)
-    from omnizip.modeling_qwen2_5_omni import Qwen2_5OmniForConditionalGeneration
+    from utils.modeling_qwen2_5_omni import Qwen2_5OmniForConditionalGeneration
 else:
     from transformers import Qwen2_5OmniForConditionalGeneration
 
@@ -51,7 +52,7 @@ class Qwen2_5_Omni(lmms):
 
     def __init__(
         self,
-        pretrained: str = "Qwen/Qwen2.5-Omni-7B",
+        pretrained: str = "Qwen/Qwen2.5-Omni-3B",
         device: Optional[str] = "cuda",
         device_map: Optional[str] = "auto",
         batch_size: Optional[Union[int, str]] = 1,
@@ -62,25 +63,30 @@ class Qwen2_5_Omni(lmms):
         fps: Optional[float] = None,  # Only applicable if use_custom_video_loader is True
         max_image_size: Optional[int] = None,  # Only applicable if use_custom_video_loader is True
         system_prompt: str = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
-        OMNIZIP_RHO_AUDIO: Optional[float] = 0.3,
-        OMNIZIP_RHO_VIDEO: Optional[float] = 0.6,
-        OMNIZIP_G: Optional[int] = 3,
-        OMNIZIP_CONTEXTUAL_RATIO: Optional[float] = 0.05,
+        remain_audio_ratio: Optional[float] = 0.3,
+        remain_video_ratio: Optional[float] = 0.6,
+        video_chunk_frames: Optional[int] = 4,
+        alpha: Optional[float] = 0.6,
         **kwargs,
     ) -> None:
         super().__init__()
         # Do not use kwargs for now
         #assert kwargs == {}, f"Unexpected kwargs: {kwargs}"
 
-        if os.environ.get("WRAPPER") == "OmniZip":
-            self.omnizip_config = {
-                "rho_audio": OMNIZIP_RHO_AUDIO,
-                "rho_video": OMNIZIP_RHO_VIDEO,
-                "g": OMNIZIP_G,
-                "contextual_ratio": OMNIZIP_CONTEXTUAL_RATIO,
+        if os.environ.get("WRAPPER") == "OmniDTBC":
+            self.omnidtbc_config = {
+                "remaining_audio": remain_audio_ratio,
+                "remaining_video": remain_video_ratio,
+                "video_chunk_frames": video_chunk_frames,
+                "alpha": alpha
             }
         else:
-            self.omnizip_config = None
+            self.omnidtbc_config = None
+
+        self.remain_audio_ratio = remain_audio_ratio
+        self.remain_video_ratio = remain_video_ratio
+        self.video_chunk_frames = video_chunk_frames
+        self.alpha = alpha
 
         self.use_custom_video_loader = use_custom_video_loader
         self.fps = fps
@@ -103,7 +109,7 @@ class Qwen2_5_Omni(lmms):
 
         Qwen2_5OmniForConditionalGeneration._tp_plan = [] if Qwen2_5OmniForConditionalGeneration._tp_plan is None else Qwen2_5OmniForConditionalGeneration._tp_plan
         self._model = Qwen2_5OmniForConditionalGeneration.from_pretrained(pretrained, torch_dtype="auto", device_map=self.device_map, attn_implementation=attn_implementation).eval()
-        self.processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-7B")
+        self.processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-3B")
         self.max_num_frames = max_num_frames
         self._tokenizer = self.processor.tokenizer
 
@@ -287,7 +293,7 @@ class Qwen2_5_Omni(lmms):
 
             text = self.processor.apply_chat_template(message, add_generation_prompt=True, tokenize=False)
             audios, images, videos = process_mm_info(message, use_audio_in_video=current_use_audio)
-            self.model.thinker.omnizip_config = self.omnizip_config
+            self.model.thinker.omnidtbc_config = self.omnidtbc_config
             self.model.thinker.nframes = videos[0].shape[0]
             inputs = self.processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True, use_audio_in_video=current_use_audio)
 
